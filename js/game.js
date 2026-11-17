@@ -180,7 +180,7 @@ function spawnGibs(ref, pieces, cuts, o) {
       topple: 0, tdir: 0, born: G.time, ground: false
     };
     if (o.topple && pieces.length > 1 && p.oy + p.tex.h >= ref.th - 3 && p.tex.h > 6) {
-      g.topple = rr(.3, .9); g.tdir = Math.random() < .5 ? -1 : 1; g.vx *= .1; g.vy *= .1; g.vz = 0; g.vrot = 0; g.bleed = 1.6;
+      g.topple = rr(.12, .35); g.tdir = Math.random() < .5 ? -1 : 1; g.vx *= .1; g.vy *= .1; g.vz = 0; g.vrot = 0; g.bleed = 1.6;
     }
     G.gibs.push(g);
   }
@@ -619,26 +619,34 @@ function updateParts(dt) {
 function gibExt(g) { const c = Math.abs(Math.cos(g.rot)), s = Math.abs(Math.sin(g.rot)); return .5 * (g.tex.h * c + g.tex.w * s) * g.sc; }
 function updateGibs(dt) {
   if (dt <= 0) return;
-  G.gibs = G.gibs.filter(g => !(g.ground && G.time - g.born > 16));
+  G.gibs = G.gibs.filter(g => G.time - g.born < 7.5);
   const plx = G.cam ? G.cam.plX : 0, ply = G.cam ? G.cam.plY : 1;
   for (const g of G.gibs) {
     if (g.topple > 0) {
       g.topple -= dt;
-      if (g.topple <= 0) { g.vrot = g.tdir * 2.4; g.toppling = true; }
+      if (g.topple <= 0) { g.vrot = g.tdir * 3.2; g.toppling = true; }
     }
+    if (g.sq === undefined) g.sq = 1;
     if (g.toppling && Math.abs(g.rot) >= 1.45) { g.rot = Math.sign(g.rot) * 1.45; g.vrot = 0; g.toppling = false; shake(.05); stampFloor(g.x, g.y, 3, 120); }
     g.vz -= GRAV * dt;
     const nx = g.x + g.vx * dt, ny = g.y + g.vy * dt;
     if (isWall(nx, g.y)) { g.vx *= -.3; if (Math.abs(g.vx) > .5) stampWallNear(g.x, g.y); } else g.x = nx;
     if (isWall(g.x, ny)) { g.vy *= -.3; } else g.y = ny;
     g.z += g.vz * dt; g.rot += g.vrot * dt;
-    const ext = gibExt(g);
+    const ext = gibExt(g) * g.sq;
     if (g.z <= ext) {
       g.z = ext;
       if (g.vz < -1.4) { g.vz *= -.25; g.vrot *= .5; stampFloor(g.x, g.y, 2, 140); }
       else g.vz = 0;
-      const f = Math.pow(.004, dt); g.vx *= f; g.vy *= f; if (!g.toppling) g.vrot *= Math.pow(.02, dt);
+      const f = Math.pow(.004, dt); g.vx *= f; g.vy *= f;
       g.ground = true;
+      // se coucher : le grand axe du morceau s'aligne sur le sol, puis il s'aplatit
+      if (!g.toppling && g.vz === 0) {
+        g.vrot = 0;
+        const flatA = g.tex.h >= g.tex.w ? (g.rot >= 0 ? Math.PI / 2 : -Math.PI / 2) : (Math.abs(angDiff(g.rot, 0)) < Math.PI / 2 ? 0 : Math.PI);
+        g.rot += angDiff(g.rot, flatA) * Math.min(1, dt * 7);
+        g.sq = lerp(g.sq, .5, Math.min(1, dt * 3));
+      }
     } else g.ground = false;
     if (g.bleed > 0) {
       g.bleed -= dt;
@@ -730,9 +738,9 @@ function drawEntities(C) {
     drawSprite(C, t, e.x, e.y, e.z + t.h * e.sc / 2, e.sc, 0, e.flip, lmAt(e.x, e.y), fl, mode);
   }
   for (const g of G.gibs) {
-    const age = G.time - g.born, dim = .72 * (age > 3 ? Math.max(.35, 1 - (age - 3) / 7) : 1);
-    const fade = age > 12 ? Math.max(0, 1 - (age - 12) / 4) : 1;
-    drawSprite(C, g.tex, g.x, g.y, g.z, g.sc, g.rot, false, lmAt(g.x, g.y), 0, 0, dim, fade);
+    const age = G.time - g.born, dim = .72 * (age > 1.5 ? Math.max(.3, 1 - (age - 1.5) / 3.5) : 1);
+    const fade = age > 4.5 ? Math.max(0, 1 - (age - 4.5) / 3) : 1;
+    drawSprite(C, g.tex, g.x, g.y, g.z, g.sc, g.rot, false, lmAt(g.x, g.y), 0, 0, dim, fade, g.sq || 1);
   }
   for (const k of G.picks) {
     if (k.kind === 'orb') drawSprite(C, SPR.orb, k.x, k.y, k.z, 1 / 64, 0, false, -1, 0, 0);
@@ -803,30 +811,7 @@ function drawHUD(v) {
     v.globalAlpha = 1;
   }
   if (G.cine) return;
-  // portrait + barres
-  const lvl = P.hp > 75 ? 0 : P.hp > 50 ? 1 : P.hp > 25 ? 2 : 3;
-  const ex = P.hurtT > 0 ? 1 : P.rageT > 0 ? 2 : G.grinT > 0 ? 3 : 0;
-  v.fillStyle = 'rgba(0,0,0,.55)'; v.fillRect(1, H - 35, 104, 34);
-  v.drawImage(SPR.face[lvl][ex], 3, H - 33);
-  v.fillStyle = '#300'; v.fillRect(32, H - 30, 70, 7);
-  v.fillStyle = P.hp < 30 && (Math.floor(G.time * 4) & 1) ? '#f44' : '#b11'; v.fillRect(32, H - 30, Math.round(70 * P.hp / P.maxHp), 7);
-  v.fillStyle = 'rgba(255,255,255,.25)'; v.fillRect(32, H - 30, Math.round(70 * P.hp / P.maxHp), 1);
-  drawText(v, Math.ceil(P.hp), 34, H - 29, 1, '#fff', 'left', null);
-  v.fillStyle = '#221'; v.fillRect(32, H - 19, 70, 4);
-  const full = P.rage >= 100 && P.rageT <= 0;
-  v.fillStyle = P.rageT > 0 ? '#f30' : full ? ((Math.floor(G.time * 5) & 1) ? '#fa0' : '#f40') : '#c60'; v.fillRect(32, H - 19, Math.round(70 * P.rage / 100), 4);
-  drawText(v, P.rageT > 0 ? 'FUREUR' : full ? (Input.touch ? 'FUREUR PRETE' : 'R : FUREUR') : 'RAGE', 32, H - 12, 1, full || P.rageT > 0 ? '#fc6' : '#a87');
-  // haut
-  drawText(v, 'ETAGE ' + G.floor, 4, 4, 1, '#c99');
-  const left = G.enemies.length;
-  drawText(v, left ? left + ' RESTANTS' : 'PORTE OUVERTE', W - 4, 4, 1, left ? '#ddd' : '#f53', 'right');
-  if (G.boss && !G.boss.dead && G.boss.aggro) {
-    const bw = Math.min(160, W - 80), bx = (W - bw) / 2;
-    drawText(v, 'LE BOUCHER', W / 2, 12, 1, '#f84', 'center');
-    v.fillStyle = '#200'; v.fillRect(bx, 19, bw, 4); v.fillStyle = '#d22'; v.fillRect(bx, 19, bw * Math.max(0, G.boss.hp / G.boss.maxHp), 4);
-  }
-  // viseur
-  v.fillStyle = 'rgba(255,220,200,.5)'; v.fillRect(W / 2 | 0, H / 2 | 0, 1, 1);
+  hudPanels(v);
   // exécution possible
   if (findExec() && (Math.floor(G.time * 6) & 1)) drawText(v, Input.touch ? 'ATTAQUE : EXECUTION' : 'CLIC : EXECUTION', W / 2, H * .64, 1, '#fb4', 'center');
   // boussole vers la porte
@@ -836,6 +821,68 @@ function drawHUD(v) {
     v.beginPath(); v.moveTo(0, -7); v.lineTo(5, 4); v.lineTo(0, 1); v.lineTo(-5, 4); v.closePath(); v.fill(); v.restore();
   }
   if (G.showMap) drawMap(v);
+}
+const SKULL_ICON = ['.###.', '#####', '#.#.#', '#####', '.#.#.'];
+function roman(n) { const t = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]; let r = ''; for (const [v, c] of t) while (n >= v) { r += c; n -= v; } return r; }
+function plate(v, x, y, w, h) {
+  v.fillStyle = '#000'; v.fillRect(x - 1, y - 1, w + 2, h + 2);
+  v.fillStyle = '#1b1517'; v.fillRect(x, y, w, h);
+  v.fillStyle = '#3c3134'; v.fillRect(x, y, w, 1); v.fillRect(x, y, 1, h);
+  v.fillStyle = '#0b0809'; v.fillRect(x, y + h - 1, w, 1); v.fillRect(x + w - 1, y, 1, h);
+  v.fillStyle = '#6a5a50'; for (const [rx, ry] of [[x + 2, y + 2], [x + w - 3, y + 2], [x + 2, y + h - 3], [x + w - 3, y + h - 3]]) v.fillRect(rx, ry, 1, 1);
+}
+function bar(v, x, y, w, h, frac, lag, c1, c2, bg) {
+  v.fillStyle = '#000'; v.fillRect(x - 1, y - 1, w + 2, h + 2);
+  v.fillStyle = bg; v.fillRect(x, y, w, h);
+  const fw = Math.round(w * clamp(frac, 0, 1)), lw = Math.round(w * clamp(lag, 0, 1));
+  if (lw > fw) { v.fillStyle = '#e8a060'; v.fillRect(x + fw, y, lw - fw, h); }
+  v.fillStyle = c1; v.fillRect(x, y, fw, h);
+  v.fillStyle = c2; v.fillRect(x, y + h - Math.max(1, h >> 2), fw, Math.max(1, h >> 2));
+  v.fillStyle = 'rgba(255,255,255,.28)'; v.fillRect(x, y, fw, 1);
+  v.fillStyle = 'rgba(0,0,0,.45)'; for (let i = 9; i < w; i += 9) v.fillRect(x + i, y, 1, h);
+}
+function hudPanels(v) {
+  const W = R.W, H = R.H;
+  P.hpLag = P.hpLag === undefined ? P.hp : (P.hpLag > P.hp ? P.hpLag - (P.hpLag - P.hp) * .04 - .1 : P.hp);
+  // panneau bas-gauche
+  const px = 3, py = H - 42;
+  plate(v, px, py, 134, 39);
+  const lvl = P.hp > 75 ? 0 : P.hp > 50 ? 1 : P.hp > 25 ? 2 : 3;
+  const ex = P.hurtT > 0 ? 1 : P.rageT > 0 ? 2 : G.grinT > 0 ? 3 : 0;
+  v.fillStyle = P.rageT > 0 ? '#a01808' : '#5a4630'; v.fillRect(px + 3, py + 3, 32, 36 - 3);
+  v.fillStyle = '#000'; v.fillRect(px + 4, py + 4, 30, 34 - 3);
+  v.drawImage(SPR.face[lvl][ex], 0, 0, 30, 31, px + 4, py + 4, 30, 31);
+  const bx = px + 40, bw = 90;
+  const low = P.hp < 30 && (Math.floor(G.time * 4) & 1);
+  drawText(v, 'VIE', bx, py + 4, 1, '#c88', 'left', null);
+  drawText(v, Math.ceil(P.hp) + '/' + P.maxHp, bx + bw, py + 4, 1, low ? '#f66' : '#eee', 'right', null);
+  bar(v, bx, py + 11, bw, 7, P.hp / P.maxHp, P.hpLag / P.maxHp, low ? '#e22' : '#a8141a', '#5a060a', '#1a0405');
+  const full = P.rage >= 100 && P.rageT <= 0, fl = Math.floor(G.time * 6) & 1;
+  bar(v, bx, py + 22, bw, 4, P.rage / 100, 0, P.rageT > 0 ? (fl ? '#ff5020' : '#ff2808') : full ? (fl ? '#ffb030' : '#ff6a10') : '#b05a14', '#602808', '#140a04');
+  drawText(v, P.rageT > 0 ? 'FUREUR ' + Math.ceil(P.rageT) : full ? (Input.touch ? 'FUREUR PRETE' : 'FUREUR PRETE  R') : 'RAGE', bx, py + 29, 1, full || P.rageT > 0 ? '#fc6' : '#987', 'left', null);
+  // esquive prête
+  v.fillStyle = P.dashCd <= 0 ? '#9bd' : '#334'; v.fillRect(bx + bw - 9, py + 30, 9, 3);
+  // plaque étage (haut gauche)
+  const ft = 'ETAGE ' + roman(G.floor), fw = textW(ft) + 10;
+  plate(v, 3, 3, fw, 11); drawText(v, ft, 8, 6, 1, '#d9a', 'left', null);
+  // ennemis restants (haut droite)
+  const left = G.enemies.length, lt = left ? String(left) : 'PORTE OUVERTE', lw = textW(lt) + 16;
+  plate(v, W - 3 - lw, 3, lw, 11);
+  v.fillStyle = left ? '#ddd' : '#f53';
+  SKULL_ICON.forEach((r, j) => { for (let i = 0; i < 5; i++) if (r[i] === '#') v.fillRect(W - lw + 2 + i, 6 + j, 1, 1); });
+  drawText(v, lt, W - 7, 6, 1, left ? '#eee' : '#f53', 'right', null);
+  // boss
+  if (G.boss && !G.boss.dead && G.boss.aggro) {
+    const bbw = Math.min(170, W - 110), bbx = (W - bbw) / 2;
+    plate(v, bbx - 4, 17, bbw + 8, 14); drawText(v, 'LE BOUCHER', W / 2, 19, 1, '#f84', 'center', null);
+    bar(v, bbx, 26, bbw, 3, G.boss.hp / G.boss.maxHp, 0, '#d22', '#700', '#200');
+  }
+  // viseur : rouge si un ennemi est à portée de lame
+  let inR = false;
+  for (const e of G.enemies) { const dx = e.x - P.x, dy = e.y - P.y; if (Math.hypot(dx, dy) - e.r < 2.15 && Math.abs(angDiff(P.ang, Math.atan2(dy, dx))) < .5) { inR = true; break; } }
+  const cx = W / 2 | 0, cy = H / 2 | 0;
+  v.fillStyle = inR ? 'rgba(255,60,40,.85)' : 'rgba(230,215,200,.45)';
+  v.fillRect(cx, cy, 1, 1); v.fillRect(cx - 4, cy, 2, 1); v.fillRect(cx + 3, cy, 2, 1); v.fillRect(cx, cy - 4, 1, 2); v.fillRect(cx, cy + 3, 1, 2);
 }
 function drawMap(v) {
   const W = R.W, H = R.H, s = Math.max(1, Math.floor(Math.min((W - 20) / G.mw, (H - 40) / G.mh)));

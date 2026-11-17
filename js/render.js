@@ -108,7 +108,7 @@ function renderWorld(C) {
 
 // sprite billboard avec rotation, test de profondeur par pixel
 // lit < 0 => plein éclairage ; flash 0..1 blanc ; mode 1 = clignotement exécution
-function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode, dim = 1, fade = 1) {
+function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode, dim = 1, fade = 1, sqy = 1) {
   const dx = wx - C.x, dy = wy - C.y, depth = dx * C.dirX + dy * C.dirY;
   if (depth < .12) return;
   const sx = C.W / 2 + (dx * C.plX + dy * C.plY) / depth * C.focal;
@@ -116,6 +116,7 @@ function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode, dim = 1, 
   const ppt = sc * C.focal / depth, hw = t.w * ppt / 2, hh = t.h * ppt / 2;
   let ex = hw, ey = hh; const cr = Math.cos(rot), sr = Math.sin(rot);
   if (rot) { ex = Math.abs(hw * cr) + Math.abs(hh * sr); ey = Math.abs(hw * sr) + Math.abs(hh * cr); }
+  ey *= sqy; const isq = 1 / sqy;
   const x0 = Math.max(0, Math.floor(sx - ex)), x1 = Math.min(C.W - 1, Math.ceil(sx + ex));
   const y0 = Math.max(0, Math.floor(sy - ey)), y1 = Math.min(C.H - 1, Math.ceil(sy + ey));
   if (x0 > x1 || y0 > y1) return;
@@ -126,7 +127,7 @@ function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode, dim = 1, 
   const fr = mode === 1 ? 255 : 255, fg = mode === 1 ? 150 : 255, fb = mode === 1 ? 40 : 255;
   const hw2 = tw / 2, hh2 = th / 2;
   for (let y = y0; y <= y1; y++) {
-    const ly = (y + .5 - sy) * inv; const row = y * W;
+    const ly = (y + .5 - sy) * inv * isq; const row = y * W;
     for (let x = x0; x <= x1; x++) {
       const i = row + x; if (dep[i] <= depth) continue;
       if (fq < 16 && BAYER[((y & 3) << 2) | (x & 3)] >= fq) continue;

@@ -418,29 +418,37 @@ function makeHands() {
 //  PORTRAIT DU HUD
 // ---------------------------------------------------------------------
 function makeFace(lvl, ex) {
-  const L = new Layer(26, 30), skin = cmul([200, 150, 118], 1 - lvl * .07), skD = cmul(skin, .74), hair = [28, 22, 20];
-  L.poly([[0, 30], [26, 30], [24, 25], [17, 23], [9, 23], [2, 25]], [58, 58, 68]);
-  L.rect(10, 20, 6, 5, skD);
-  L.ell(13, 13, 7.5, 9.5, skin);
-  for (let y = 16; y < 23; y++) for (let x = 5; x < 22; x++) if (L.A(x, y) && hash2(x, y, 5) < .35) L.set(x, y, cmul(skin, .72));
-  L.ell(13, 6, 8.5, 4.5, hair);
-  for (let i = 0; i < 7; i++) { const x = 5 + i * 2.3; L.taper(x, 6, x + ((i % 2) ? 1.6 : -1.6), (i * 5) % 3, 1.6, .4, hair); }
-  L.rect(4, 6, 2, 7, hair); L.rect(20, 6, 2, 7, hair);
-  const by = 9;
-  if (ex === 2) { L.line(7, by - 1, 11, by + 1, .6, hair); L.line(15, by + 1, 19, by - 1, .6, hair); }
-  else { L.line(7, by, 11, by + 1, .6, hair); L.line(15, by + 1, 19, by, .6, hair); }
-  if (ex === 1) { L.line(8, 12, 11, 12, .5, [40, 20, 20]); L.line(15, 12, 18, 12, .5, [40, 20, 20]); }
-  else { L.rect(8, 11, 3, 2, [232, 226, 214]); L.rect(15, 11, 3, 2, [232, 226, 214]); L.rect(9, 11, 1, 2, [30, 20, 15]); L.rect(16, 11, 1, 2, [30, 20, 15]); }
-  L.line(13, 12, 13, 16, .5, skD); L.set(12, 16, skD);
-  if (ex === 0) L.line(10, 19, 16, 19, .5, [90, 40, 35]);
-  if (ex === 1) { L.rect(10, 18, 6, 3, [40, 8, 8]); L.rect(10, 18, 6, 1, [230, 225, 210]); }
-  if (ex === 2) { L.rect(9, 18, 8, 2, [230, 225, 210]); L.line(9, 19, 16, 19, .3, [60, 20, 20]); }
-  if (ex === 3) { L.line(9, 18, 17, 18, .5, [60, 20, 20]); L.set(9, 17, [60, 20, 20]); L.set(17, 17, [60, 20, 20]); L.rect(10, 18, 6, 1, [230, 225, 210]); }
-  L.line(8, 7, 16, 15, .4, [222, 140, 130]);
-  const n = [0, 3, 7, 13][lvl];
-  for (let i = 0; i < n; i++) { const x = 5 + hash2(i, 1, 9) * 16, y = 3 + hash2(i, 2, 9) * 16; L.taper(x, y, x, y + 2 + hash2(i, 3, 9) * 5, 1.1, .4, [150, 10, 10]); }
-  L.grit(.1, 3); L.shade(.2, .3); L.outline(OUT);
-  if (ex === 2) for (const x of [8, 9, 10, 15, 16, 17]) L.set(x, 11, [255, 40, 20], EMI);
+  // héros original : mercenaire encapuchonné, barbe cendrée, yeux pâles
+  const W = 30, H = 34, L = new Layer(W, H);
+  const skin = cmul([196, 156, 126], 1 - lvl * .06), skD = cmul(skin, .72), hood = [46, 38, 36], hoodL = [74, 62, 56], beard = [150, 146, 140], beardD = [100, 96, 92];
+  L.poly([[0, 34], [30, 34], [28, 27], [21, 24], [9, 24], [2, 27]], [54, 54, 62]);
+  L.poly([[3, 34], [6, 26], [9, 24]], [80, 80, 92]);
+  L.poly([[3, 30], [4, 10], [8, 3], [15, 1], [22, 3], [26, 10], [27, 30], [22, 26], [8, 26]], hood);
+  L.line(6, 9, 9, 4, .5, hoodL); L.line(24, 9, 21, 4, .5, hoodL);
+  L.ell(15, 15, 7.5, 9.5, skin);
+  L.rect(7, 5, 16, 3, hood);
+  // barbe
+  L.poly([[7, 16], [23, 16], [22, 24], [18, 28], [12, 28], [8, 24]], beard);
+  for (let i = 0; i < 9; i++) L.line(9 + i * 1.6, 18 + (i % 2), 9.5 + i * 1.5, 26, .3, beardD);
+  L.line(10, 17, 20, 17, .6, beard);
+  // sourcils lourds
+  if (ex === 2) { L.line(8, 10, 13, 12, .7, [70, 66, 62]); L.line(17, 12, 22, 10, .7, [70, 66, 62]); }
+  else { L.line(8, 11, 13, 11.5, .7, [70, 66, 62]); L.line(17, 11.5, 22, 11, .7, [70, 66, 62]); }
+  // yeux
+  if (ex === 1) { L.line(9, 13, 12, 13.5, .5, [40, 24, 20]); L.line(18, 13.5, 21, 13, .5, [40, 24, 20]); }
+  else { L.rect(9, 13, 3, 2, [214, 210, 200]); L.rect(18, 13, 3, 2, [214, 210, 200]); L.rect(10, 13, 1, 2, [90, 140, 170]); L.rect(19, 13, 1, 2, [90, 140, 170]); }
+  L.line(15, 13, 15, 17, .5, skD); L.set(14, 17, skD); L.set(16, 17, skD);
+  // bouche dans la barbe
+  if (ex === 0) L.line(12, 20, 18, 20, .4, [60, 34, 30]);
+  if (ex === 1) { L.ell(15, 21, 3, 2, [36, 8, 8]); L.rect(13, 20, 4, 1, [226, 220, 204]); }
+  if (ex === 2) { L.rect(11, 19, 8, 3, [36, 8, 8]); L.rect(11, 19, 8, 1, [230, 224, 208]); L.rect(11, 21, 8, 1, [230, 224, 208]); }
+  if (ex === 3) { L.line(12, 20, 18, 19, .4, [60, 34, 30]); L.set(18, 18, [60, 34, 30]); }
+  // cicatrice verticale sur l'oeil gauche
+  L.line(19, 8, 21, 18, .4, [214, 130, 118]);
+  const n = [0, 4, 8, 14][lvl];
+  for (let i = 0; i < n; i++) { const x = 7 + hash2(i, 1, 9) * 16, y = 6 + hash2(i, 2, 9) * 16; L.taper(x, y, x, y + 2 + hash2(i, 3, 9) * 5, 1.1, .4, [150, 10, 10]); }
+  L.grit(.1, 3); L.shade(.18, .3); L.outline(OUT);
+  if (ex === 2) for (const x of [9, 10, 11, 18, 19, 20]) L.set(x, 13, [255, 40, 20], EMI);
   return L.canvas();
 }
 
