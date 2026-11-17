@@ -65,6 +65,11 @@ const Sfx = (() => {
     rage() { tone('sawtooth', 60, 120, .8, .3, 0, 700); noise(.9, 'bandpass', 200, 1400, 2, .4); tone('sine', 40, 25, 1.2, .8); },
     charge() { tone('sawtooth', 80, 200, .5, .1, 0, 600); },
     dash() { noise(.18, 'bandpass', 1200, 400, 1, .3); },
+    breath(inhale, ex) {
+      const v = .04 + ex * .13;
+      if (inhale) noise(.42 - ex * .2, 'bandpass', 700, 1500, 1.1, v * .6);
+      else { noise(.6 - ex * .25, 'bandpass', 1300, 450, .9, v); noise(.4 - ex * .15, 'lowpass', 500, 200, 1, v * .5); }
+    },
     step() { noise(.06, 'lowpass', 350, 120, 1, .12); },
     stagger() { tone('triangle', 400, 200, .25, .12); }
   };

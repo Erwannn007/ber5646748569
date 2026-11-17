@@ -30,10 +30,11 @@ const BLOODC = [[150, 8, 8], [110, 0, 4], [190, 20, 16], [80, 0, 0]];
 const G = {
   state: 'title', floor: 1, time: 0, tint: [1.05, .86, .72], flick: 1, flash: 0, shake: 0, hitstop: 0, slowT: 0, slowScale: 1,
   impact: 0, letter: 0, fovCur: 1.26, fovKick: 0, tilt: 0, redFlash: 0, grinT: 0, showMap: false, msgs: [], cine: null,
+  haze: 1, kickYaw: 0, kickPitch: 0, roll: 0, breath: [],
   enemies: [], gibs: [], parts: [], projs: [], picks: [], pools: [], decor: [], eid: 0, best: 0, map: null, run: null,
   msg(txt, life = 1.5, col = '#fff', big = false) { G.msgs.push({ txt, life, max: life, col, big }); if (G.msgs.length > 5) G.msgs.shift(); }
 };
-const P = { x: 0, y: 0, ang: 0, hp: 100, maxHp: 100, rage: 0, rageT: 0, vx: 0, vy: 0, dash: 0, dashCd: 0, dvx: 0, dvy: 0, invul: 0, hurtT: 0, bob: 0, moveAmt: 0, dead: false, beatT: 0 };
+const P = { x: 0, y: 0, ang: 0, pitch: 0, ex: 0, brPh: 0, turn: 0, hp: 100, maxHp: 100, rage: 0, rageT: 0, vx: 0, vy: 0, dash: 0, dashCd: 0, dvx: 0, dvy: 0, invul: 0, hurtT: 0, bob: 0, moveAmt: 0, dead: false, beatT: 0 };
 const Wpn = { name: null, t: 0, hits: 0, sw: 0, queued: false, combo: 0, lastEnd: -9, charging: false, charge: 0, chargeAmt: 0, hvPending: false };
 try { G.best = +localStorage.getItem('berserker_best') || 0; } catch (e) { }
 
@@ -134,7 +135,7 @@ function stampWall(cell, u, v, amt) {
 }
 
 // ---------------------------------------------------------------- découpe
-const FLESH1 = RGBA(198, 28, 24), FLESH2 = RGBA(118, 4, 6), BONEC = RGBA(234, 224, 204);
+const FLESH1 = RGBA(160, 22, 20), FLESH2 = RGBA(118, 4, 6), BONEC = RGBA(234, 224, 204);
 function lineCut(a, px, py) { const nx = -Math.sin(a), ny = Math.cos(a); return { nx, ny, c: nx * px + ny * py, a }; }
 function cropPiece(arr, w, h, p, wx, wy) {
   let x0 = w, y0 = h, x1 = -1, y1 = -1;
@@ -175,36 +176,47 @@ function spawnGibs(ref, pieces, cuts, o) {
     const g = {
       tex: p.tex, ox: p.ox, oy: p.oy, wx: p.wx, wy: p.wy, x: ref.x + ref.lx * lat, y: ref.y + ref.ly * lat, z: Math.max(.02, z),
       vx: ref.lx * vl + ref.fx * fw + rr(-.3, .3), vy: ref.ly * vl + ref.fy * fw + rr(-.3, .3), vz: py * sep + up,
-      rot: 0, vrot: o.spin * rr(-1, 1) + px * o.spin * .4, sc: ref.sc, bleed: rr(1.2, 2.6) * (o.bleed || 1), owner: ref.id,
+      rot: 0, vrot: o.spin * rr(-1, 1) + px * o.spin * .4, sc: ref.sc, bleed: rr(.6, 1.4) * (o.bleed || 1), owner: ref.id,
       topple: 0, tdir: 0, born: G.time, ground: false
     };
     if (o.topple && pieces.length > 1 && p.oy + p.tex.h >= ref.th - 3 && p.tex.h > 6) {
-      g.topple = rr(.3, .9); g.tdir = Math.random() < .5 ? -1 : 1; g.vx *= .1; g.vy *= .1; g.vz = 0; g.vrot = 0; g.bleed = 2.8;
+      g.topple = rr(.3, .9); g.tdir = Math.random() < .5 ? -1 : 1; g.vx *= .1; g.vy *= .1; g.vz = 0; g.vrot = 0; g.bleed = 1.6;
     }
     G.gibs.push(g);
   }
-  if (G.gibs.length > 170) {
-    G.gibs.sort((a, b) => (b.ground ? 0 : 1) - (a.ground ? 0 : 1) || b.born - a.born);
-    G.gibs.length = 150;
-  }
+  if (G.gibs.length > 100) { G.gibs.sort((a, b) => b.born - a.born); G.gibs.length = 85; }
 }
 function cutSpray(ref, cut, n) {
   const px = ref.cx, py = Math.abs(cut.ny) > .2 ? clamp((cut.c - cut.nx * px) / cut.ny, 0, ref.th) : ref.cy;
   const z = ref.zc - (py - ref.cy) * ref.sc;
   spray(ref.x, ref.y, Math.max(.05, z), n, 2.6, ref.fx * .6, ref.fy * .6);
 }
-function cutsFor(kind, T) {
-  const cx = T.tw / 2;
+// point visé (viseur au centre de l'écran) projeté dans la texture du monstre
+function aimTex(e) {
+  const C = G.cam; if (!C) return null;
+  const dx = e.x - C.x, dy = e.y - C.y, depth = dx * C.dirX + dy * C.dirY; if (depth < .2) return null;
+  const lat = dx * C.plX + dy * C.plY, zAim = C.eye + (C.hor - C.H / 2) * depth / C.focal;
+  return { tx: e.T.tw / 2 - lat / e.sc, ty: e.T.th - (zAim - e.z) / e.sc };
+}
+function cutsFor(kind, T, aim) {
+  const mid = T.tw / 2, cx = aim ? clamp(aim.tx, T.tw * .3, T.tw * .7) : mid;
+  let ay = aim ? aim.ty : rr(T.waist - 5, T.waist + 2);
+  const high = ay < T.neck + 3; ay = high ? T.neck : clamp(ay, T.neck + 3, T.th * .86);
+  const D = c => Object.assign(c, { decap: high });
   switch (kind) {
     case 'R2L': case 'L2R': {
-      const tilt = (kind === 'R2L' ? 1 : -1) * rr(.05, .3);
-      if (Math.random() < .28) return [Object.assign(lineCut(tilt * .4, cx, T.neck), { decap: 1 })];
-      return [lineCut(tilt, cx, rr(T.waist - 5, T.waist + 2))];
+      const tilt = (kind === 'R2L' ? 1 : -1) * rr(.05, .28) * (high ? .4 : 1);
+      return [D(lineCut(tilt, mid, ay))];
     }
-    case 'OVER': return [lineCut(Math.PI / 2 + rr(-.1, .1), cx + rr(-2, 2), T.th / 2)];
-    case 'SPIN': return [lineCut(rr(-.2, .2), cx, T.waist - 2), Object.assign(lineCut(rr(-.15, .15), cx, T.neck), { decap: 1 })];
-    default: return [lineCut(rr(-.6, .6), cx, rr(T.neck + 3, T.waist))];
+    case 'OVER': return [lineCut(Math.PI / 2 + rr(-.08, .08), cx, T.th / 2)];
+    case 'SPIN': return [D(lineCut(rr(-.2, .2), mid, ay)), high ? lineCut(rr(-.2, .2), mid, T.waist) : Object.assign(lineCut(rr(-.15, .15), mid, T.neck), { decap: 1 })];
+    default: return [D(lineCut(rr(-.6, .6), cx, ay))];
   }
+}
+function flipTex(t) {
+  const d = new Uint32Array(t.w * t.h);
+  for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) d[y * t.w + x] = t.data[y * t.w + t.w - 1 - x];
+  return { w: t.w, h: t.h, data: d };
 }
 
 // ---------------------------------------------------------------- combat
@@ -219,7 +231,7 @@ function damageEnemy(e, dmg, kind) {
   const dx = e.x - P.x, dy = e.y - P.y, d = Math.hypot(dx, dy) || 1, T = e.T;
   const heavy = kind === 'OVER' || kind === 'SPIN' || kind === 'PROJ';
   const zc = e.z + (T.th - (T.neck + T.waist) / 2) * e.sc;
-  spray(e.x, e.y, zc, heavy ? 40 : 24, 2.4, dx / d, dy / d);
+  spray(e.x, e.y, zc, heavy ? 26 : 14, 2.4, dx / d, dy / d);
   stampFloor(e.x + rr(-.2, .2), e.y + rr(-.2, .2), 2, 90);
   if (e.hp <= 0) { killEnemy(e, kind); return true; }
   const kb = (heavy ? 5 : 2.6) / (T.heavyBody ? 2.2 : 1) / (e.boss ? 2 : 1);
@@ -233,13 +245,13 @@ function damageEnemy(e, dmg, kind) {
 }
 function killEnemy(e, kind) {
   const T = e.T; e.dead = true; G.fstats.kills++; G.run.kills++;
-  const tex = eTex(e, e.fr);
-  const cuts = cutsFor(kind, T);
+  let tex = eTex(e, e.fr); if (e.flip) tex = flipTex(tex);
+  const cuts = cutsFor(kind, T, kind === 'PROJ' ? null : aimTex(e));
   if (P.rageT > 0) cuts.push(lineCut(rr(-.9, .9), T.tw / 2, rr(T.neck + 2, T.th - 10)));
   const pieces = cutPieces([{ tex, ox: 0, oy: 0, wx: T.tw / 2, wy: T.th / 2 }], cuts);
   const ref = refFromEnemy(e), heavy = kind === 'OVER' || kind === 'SPIN';
   spawnGibs(ref, pieces, cuts, { sep: heavy ? 2.2 : 1.5, up: heavy ? 1.6 : 1, fwd: heavy ? 2.5 : 1.4, spin: heavy ? 5 : 3, topple: true });
-  for (const c of cuts) cutSpray(ref, c, heavy ? 60 : 40);
+  for (const c of cuts) cutSpray(ref, c, heavy ? 38 : 24);
   for (let i = 0; i < 3; i++) G.pools.push({ x: e.x + rr(-.25, .25), y: e.y + rr(-.25, .25), r: 0, max: rr(4, 8) * (T.tw / 64) });
   dropOrbs(e.x, e.y, e.boss ? 14 : T.heavyBody ? 5 : ri(2, 3));
   P.rage = Math.min(100, P.rage + (e.boss ? 40 : 10));
@@ -256,7 +268,8 @@ function dropOrbs(x, y, n) {
 function hurtPlayer(dmg, src) {
   if (P.invul > 0 || P.dash > 0 || G.cine || P.dead) return;
   if (P.rageT > 0) dmg *= .5;
-  P.hp -= dmg; P.hurtT = .45; G.redFlash = Math.min(.65, G.redFlash + dmg / 35); shake(dmg / 30); Sfx.hurt();
+  P.hp -= dmg; P.hurtT = .45; G.redFlash = Math.min(.65, G.redFlash + dmg / 35); shake(dmg / 22); Sfx.hurt();
+  G.kickPitch += 10; G.kickYaw += rr(-.07, .07); P.ex = Math.min(1, P.ex + dmg / 45);
   spray(P.x + Math.cos(P.ang) * .3, P.y + Math.sin(P.ang) * .3, .45, 8, 1.5, 0, 0);
   if (P.hp <= 0) { P.hp = 0; P.dead = true; G.state = 'dead'; G.deadT = 0; Sfx.boom(); saveBest(); }
 }
@@ -289,7 +302,7 @@ function onHit(name, idx) {
       G.msg('RENVOYE !', 1, '#8f8'); sparks(p.x, p.y, p.z, 12, [140, 255, 150]); hits++;
     }
   }
-  if (hits) { G.hitstop = kills ? .09 : .06; shake(A.shake * (kills ? 1.3 : 1)); Sfx.hit(); P.rage = Math.min(100, P.rage + 3 * hits); }
+  if (hits) { G.hitstop = kills ? .09 : .06; shake(A.shake * (kills ? 1.5 : 1.1)); G.kickPitch += kills ? -6 : -3; Sfx.hit(); P.rage = Math.min(100, P.rage + 3 * hits); }
   else {
     for (const s of [0, -.35, .35]) {
       const a = P.ang + s, wx = P.x + Math.cos(a) * 1.0, wy = P.y + Math.sin(a) * 1.0;
@@ -314,7 +327,7 @@ function execHit(idx) {
   const py = cd.y === 'neck' ? T.neck : cd.y === 'waist' ? T.waist : (T.neck + T.waist) / 2 + 3;
   const cut = lineCut(cd.a, T.tw / 2, py);
   if (idx === 0) {
-    const tex = eTex(e, 'hurt'); e.dead = true; G.fstats.kills++; G.run.kills++;
+    let tex = eTex(e, 'hurt'); if (e.flip) tex = flipTex(tex); e.dead = true; G.fstats.kills++; G.run.kills++;
     c.ref = refFromEnemy(e);
     const pieces = cutPieces([{ tex, ox: 0, oy: 0, wx: T.tw / 2, wy: T.th / 2 }], [cut]);
     spawnGibs(c.ref, pieces, [cut], { sep: .35, up: cd.y === 'neck' ? 1.4 : .2, fwd: .2, spin: .8, topple: false, bleed: 2 });
@@ -326,7 +339,7 @@ function execHit(idx) {
       const pieces = cutPieces([{ tex: g.tex, ox: g.ox, oy: g.oy, wx: g.wx, wy: g.wy }], [cut]);
       spawnGibs(ref, pieces, [cut], { sep: 3.2, up: 2.6, fwd: 2.4, spin: 7, topple: false, bleed: 1.5 });
     }
-    spray(c.ref.x, c.ref.y, c.ref.zc, 170, 3.6, c.ref.fx, c.ref.fy);
+    spray(c.ref.x, c.ref.y, c.ref.zc, 110, 3.6, c.ref.fx, c.ref.fy);
     for (let i = 0; i < 5; i++) G.pools.push({ x: c.ref.x + rr(-.6, .6), y: c.ref.y + rr(-.6, .6), r: 0, max: rr(5, 10) });
     for (let i = 0; i < 40; i++) stampWallNear(c.ref.x, c.ref.y);
     G.impact = .16; G.flash = .5; shake(1.5); Sfx.boom(); Sfx.gore();
@@ -376,13 +389,20 @@ function wpose(name, t) {
 function updateWeapon(dt) {
   if (Wpn.hvPending && !Wpn.name) { Wpn.hvPending = false; if (Input.hvH) { Wpn.charging = true; Wpn.charge = 0; Sfx.charge(); } else wpnPlay('OVER'); }
   if (Wpn.charging) {
-    Wpn.charge += dt;
+    Wpn.charge += dt; G.shake = Math.max(G.shake, Math.min(1, Wpn.charge) * .14);
     if (!Input.hvH) { Wpn.charging = false; Wpn.chargeAmt = Math.min(1, Wpn.charge); wpnPlay(Wpn.charge >= .35 ? 'SPIN' : 'OVER'); }
   }
   if (!Wpn.name) return;
   const A = ANIMS[Wpn.name];
   Wpn.t += dt * ((P.rageT > 0 && !A.exec) ? 1.4 : 1);
-  while (Wpn.sw < A.sw.length && Wpn.t >= A.sw[Wpn.sw]) { Sfx.swing(!!(A.heavy || A.exec)); Wpn.sw++; }
+  while (Wpn.sw < A.sw.length && Wpn.t >= A.sw[Wpn.sw]) {
+    Sfx.swing(!!(A.heavy || A.exec)); Wpn.sw++;
+    const n = Wpn.name;
+    if (n === 'R2L') G.kickYaw -= .04; else if (n === 'L2R') G.kickYaw += .04;
+    else if (n === 'OVER') G.kickPitch -= 16; else if (n === 'SPIN') { G.kickYaw -= .1; shake(.25); }
+    else if (A.exec) { G.kickYaw += Wpn.sw === 1 ? -.06 : .06; G.kickPitch -= 10; }
+    P.ex = Math.min(1, P.ex + (A.heavy || A.exec ? .13 : .07));
+  }
   while (Wpn.hits < A.hits.length && Wpn.t >= A.hits[Wpn.hits]) { const h = Wpn.hits++; onHit(Wpn.name, h); if (G.hitstop > 0) break; }
   if (Wpn.t >= A.len) { Wpn.name = null; Wpn.lastEnd = G.time; if (Wpn.queued) { Wpn.queued = false; comboAttack(); } }
 }
@@ -390,19 +410,23 @@ function updateWeapon(dt) {
 // ---------------------------------------------------------------- joueur
 function updatePlayer(dt) {
   P.invul = Math.max(0, P.invul - dt); P.hurtT = Math.max(0, P.hurtT - dt); P.dashCd -= dt;
-  if (G.cine) { Input.look = 0; P.moveAmt = lerp(P.moveAmt, 0, .2); return; }
-  P.ang += Input.look; Input.look = 0;
+  updateBreath(dt);
+  if (G.cine) { Input.look = 0; Input.lookY = 0; P.pitch = lerp(P.pitch, 0, Math.min(1, dt * 4)); P.moveAmt = lerp(P.moveAmt, 0, .2); return; }
+  P.turn = Input.look; P.ang += Input.look; Input.look = 0;
+  P.pitch = clamp(P.pitch - Input.lookY * 260, -85, 85); Input.lookY = 0;
+  if (Input.k.PageUp) P.pitch = Math.min(85, P.pitch + 120 * dt); if (Input.k.PageDown) P.pitch = Math.max(-85, P.pitch - 120 * dt);
   const k = Input.k;
   if (k.ArrowLeft) P.ang -= 2.6 * dt; if (k.ArrowRight) P.ang += 2.6 * dt;
   let f = 0, s = 0;
   if (k.KeyW || k.ArrowUp) f++; if (k.KeyS || k.ArrowDown) f--; if (k.KeyD) s++; if (k.KeyA) s--;
   f -= Input.my; s += Input.mx;
   const l = Math.hypot(f, s); if (l > 1) { f /= l; s /= l; }
+  G.roll = lerp(G.roll, clamp(-s * .022 - P.turn * .5, -.06, .06), Math.min(1, dt * 7));
   const cs = Math.cos(P.ang), sn = Math.sin(P.ang), mvx = cs * f - sn * s, mvy = sn * f + cs * s;
   const spd = 4.3 * (Wpn.charging ? .5 : 1) * (P.rageT > 0 ? 1.15 : 1);
   if (Input.dashP && P.dashCd <= 0) {
     let dx = mvx, dy = mvy; if (Math.hypot(dx, dy) < .1) { dx = cs; dy = sn; }
-    const dl = Math.hypot(dx, dy); P.dvx = dx / dl * 13; P.dvy = dy / dl * 13; P.dash = .16; P.dashCd = .55; Sfx.dash(); G.fovKick += .1;
+    const dl = Math.hypot(dx, dy); P.dvx = dx / dl * 13; P.dvy = dy / dl * 13; P.dash = .16; P.dashCd = .55; Sfx.dash(); G.fovKick += .1; shake(.15); P.ex = Math.min(1, P.ex + .15);
   }
   if (P.dash > 0) { P.dash -= dt; P.vx = P.dvx; P.vy = P.dvy; }
   else { const a = Math.min(1, dt * 12); P.vx += (mvx * spd - P.vx) * a; P.vy += (mvy * spd - P.vy) * a; }
@@ -432,6 +456,43 @@ function updatePlayer(dt) {
     if (ex && !Wpn.name && !Wpn.charging) startExec(ex);
     else if (!Wpn.name && !Wpn.charging) { Wpn.charging = true; Wpn.charge = 0; Sfx.charge(); }
     else if (Wpn.name && !G.cine) Wpn.hvPending = true;
+  }
+}
+
+// respiration : plus l'effort est grand, plus le souffle est rapide et visible
+function updateBreath(dt) {
+  const base = P.moveAmt * .28 + (P.hp < 35 ? .45 : 0) + (P.rageT > 0 ? .55 : 0) + (Wpn.charging ? .3 : 0);
+  P.ex = clamp(P.ex - dt * .055, Math.min(1, base), 1);
+  const period = lerp(3.6, .62, P.ex), ph0 = P.brPh;
+  P.brPh = (P.brPh + dt / period) % 1;
+  if (P.brPh < ph0) Sfx.breath(true, P.ex);
+  if (ph0 < .5 && P.brPh >= .5) {
+    Sfx.breath(false, P.ex);
+    const n = Math.round(5 + P.ex * 9);
+    for (let i = 0; i < n; i++) G.breath.push({
+      x: rr(-5, 5), y: R.H + rr(2, 8), vx: rr(-9, 9), vy: -rr(18, 34) * (.75 + P.ex * .7), r: rr(2.5, 5), gr: rr(12, 24) * (.8 + P.ex * .5),
+      a: rr(.09, .17) * (.85 + P.ex * .6), life: rr(1.1, 1.9) * (1.1 - P.ex * .3), age: -i * .03 * (1.3 - P.ex)
+    });
+  }
+}
+function updateBreathFx(dt) {
+  const f = G.cam ? G.cam.focal : 280;
+  G.breath = G.breath.filter(b => {
+    b.age += dt; if (b.age < 0) return true;
+    b.x += b.vx * dt - P.turn * f * .6; b.y += b.vy * dt; b.vy *= Math.pow(.45, dt); b.vx *= Math.pow(.6, dt);
+    b.r += b.gr * dt; return b.age < b.life;
+  });
+  if (G.breath.length > 120) G.breath.splice(0, G.breath.length - 120);
+}
+function drawBreath(v) {
+  const W = R.W;
+  for (const b of G.breath) {
+    if (b.age < 0) continue;
+    const t = b.age / b.life, a = b.a * (t < .15 ? t / .15 : 1 - (t - .15) / .85);
+    v.fillStyle = `rgba(222,230,240,${a})`;
+    v.beginPath(); v.arc(W / 2 + b.x, b.y, b.r, 0, TAU); v.fill();
+    v.fillStyle = `rgba(240,245,250,${a * .5})`;
+    v.beginPath(); v.arc(W / 2 + b.x - b.r * .2, b.y - b.r * .2, b.r * .55, 0, TAU); v.fill();
   }
 }
 
@@ -478,7 +539,11 @@ function updateEnemies(dt) {
       moveCircle(e, e.kx * dt, e.ky * dt, Math.min(.42, e.r * .8)); const f = Math.exp(-9 * dt); e.kx *= f; e.ky *= f;
       if (Math.abs(e.kx) + Math.abs(e.ky) < .05) e.kx = e.ky = 0;
     }
-    e.moving = false;
+    if (T.heavyBody && e.wasMoving) {
+      e.stepT = (e.stepT || 0) - dt;
+      if (e.stepT <= 0) { e.stepT = e.boss ? .55 : .45; if (dist < 8) { shake((e.boss ? .3 : .16) * (1 - dist / 8)); Sfx.step(); } }
+    }
+    e.wasMoving = e.moving; e.moving = false;
     if (e.stagger > 0) { e.stagger -= dt; e.state = 'stagger'; continue; }
     if (e.state === 'stagger') { e.state = 'chase'; e.cd = .5; }
     switch (e.state) {
@@ -554,6 +619,7 @@ function updateParts(dt) {
 function gibExt(g) { const c = Math.abs(Math.cos(g.rot)), s = Math.abs(Math.sin(g.rot)); return .5 * (g.tex.h * c + g.tex.w * s) * g.sc; }
 function updateGibs(dt) {
   if (dt <= 0) return;
+  G.gibs = G.gibs.filter(g => !(g.ground && G.time - g.born > 16));
   const plx = G.cam ? G.cam.plX : 0, ply = G.cam ? G.cam.plY : 1;
   for (const g of G.gibs) {
     if (g.topple > 0) {
@@ -612,6 +678,8 @@ function update(dt) {
   G.flick = .93 + .05 * Math.sin(G.time * 13.1) * Math.sin(G.time * 7.3) + .02 * Math.sin(G.time * 31);
   G.shake *= Math.pow(.004, dt); G.flash = Math.max(0, G.flash - dt * 2.5); G.redFlash = Math.max(0, G.redFlash - dt * 1.2);
   G.fovKick *= Math.pow(.02, dt); G.grinT -= dt;
+  G.kickYaw *= Math.pow(.0004, dt); G.kickPitch *= Math.pow(.0004, dt);
+  updateBreathFx(dt);
   for (const m of G.msgs) m.life -= dt; G.msgs = G.msgs.filter(m => m.life > 0);
   const tgt = P.rageT > 0 ? [1.35, .55, .45] : [1.05, .86, .72];
   for (let i = 0; i < 3; i++) G.tint[i] = lerp(G.tint[i], tgt[i], Math.min(1, dt * 4));
@@ -623,7 +691,7 @@ function update(dt) {
   if (G.state === 'pause') { if (Input.anyP) G.state = 'play'; return; }
   if (G.state === 'floorEnd') { G.endT += dt; if (G.endT > 1 && Input.anyP) { newFloor(G.floor + 1); G.state = 'play'; } return; }
   if (G.state === 'dead') {
-    G.deadT += dt; updateGibs(dt * .5); updateParts(dt * .5); updatePools(dt);
+    G.deadT += dt; updateBreath(dt); updateGibs(dt * .5); updateParts(dt * .5); updatePools(dt);
     if (G.deadT > 1.5 && Input.anyP) newGame();
     return;
   }
@@ -661,7 +729,11 @@ function drawEntities(C) {
     if (e.stagger > 0 && (Math.floor(G.time * 8) & 1)) { fl = Math.max(fl, .5); mode = 1; }
     drawSprite(C, t, e.x, e.y, e.z + t.h * e.sc / 2, e.sc, 0, e.flip, lmAt(e.x, e.y), fl, mode);
   }
-  for (const g of G.gibs) drawSprite(C, g.tex, g.x, g.y, g.z, g.sc, g.rot, false, lmAt(g.x, g.y), 0, 0);
+  for (const g of G.gibs) {
+    const age = G.time - g.born, dim = .72 * (age > 3 ? Math.max(.35, 1 - (age - 3) / 7) : 1);
+    const fade = age > 12 ? Math.max(0, 1 - (age - 12) / 4) : 1;
+    drawSprite(C, g.tex, g.x, g.y, g.z, g.sc, g.rot, false, lmAt(g.x, g.y), 0, 0, dim, fade);
+  }
   for (const k of G.picks) {
     if (k.kind === 'orb') drawSprite(C, SPR.orb, k.x, k.y, k.z, 1 / 64, 0, false, -1, 0, 0);
     else drawSprite(C, SPR.flask, k.x, k.y, .18 + Math.sin(G.time * 3 + k.x) * .03, 1 / 64, 0, false, Math.max(.6, lmAt(k.x, k.y)), 0, 0);
@@ -793,8 +865,8 @@ function drawScreens(v) {
     drawText(v, 'LES DONJONS DE SANG', W / 2, 66, 2, '#d8c8b8', 'center');
     if (Math.floor(G.time * 2) & 1) drawText(v, Input.touch ? 'TOUCHE POUR COMMENCER' : 'CLIQUE POUR COMMENCER', W / 2, 92, 1, '#fc6', 'center');
     const lines = Input.touch
-      ? ['STICK GAUCHE : BOUGER   GLISSER A DROITE : VISER', 'EPEE : COMBO   LOURD (MAINTENIR) : COUP CHARGE', 'ESQ : ESQUIVE   FUREUR : RAGE   CARTE : CARTE']
-      : ['ZQSD / WASD : BOUGER   SOURIS : VISER   MOLETTE : SENSIBILITE', 'CLIC GAUCHE : COMBO 3 COUPS   CLIC DROIT (MAINTENIR) : COUP CHARGE', 'ESPACE : ESQUIVE   R : FUREUR   M : CARTE'];
+      ? ['STICK GAUCHE : BOUGER   GLISSER A DROITE : REGARDER', 'EPEE : COMBO   LOURD (MAINTENIR) : COUP CHARGE', 'ESQ : ESQUIVE   FUREUR : RAGE   CARTE : CARTE']
+      : ['ZQSD / WASD : BOUGER   SOURIS : REGARDER (HAUT/BAS AUSSI)', 'CLIC GAUCHE : COMBO   CLIC DROIT (MAINTENIR) : CHARGE   VISE OU TU VEUX TRANCHER', 'ESPACE : ESQUIVE   R : FUREUR   M : CARTE'];
     lines.forEach((l, i) => drawText(v, l, W / 2, 116 + i * 9, 1, '#a99', 'center'));
     drawText(v, 'AFFAIBLIS UN MONSTRE PUIS FRAPPE-LE QUAND IL CLIGNOTE : EXECUTION', W / 2, 150, 1, '#c86', 'center');
     drawText(v, 'TUE TOUT POUR OUVRIR LA PORTE DE SANG', W / 2, 160, 1, '#c86', 'center');
@@ -824,21 +896,24 @@ function drawScreens(v) {
 function draw() {
   const W = R.W, H = R.H, v = R.vctx;
   if (!G.map) return;
-  const shx = (Math.random() - .5) * G.shake * 9, shy = (Math.random() - .5) * G.shake * 9;
+  const sk = G.shake * G.shake * .7 + G.shake * .3, st = G.time * 42;
+  const shx = (Math.sin(st * 1.31) + Math.sin(st * .77 + 1.3) * .6) * sk * 6, shy = (Math.sin(st * 1.71 + 2) + Math.sin(st * .93 + 4) * .6) * sk * 6;
+  const shr = (Math.sin(st * 1.13 + 5) + Math.sin(st * .61) * .5) * sk * .03;
   let eye = .5 + Math.sin(P.bob * 2) * .012 * P.moveAmt;
   if (P.dead) eye = lerp(.5, .1, Math.min(1, G.deadT * 2));
-  const C = makeCam(P.x, P.y, P.ang, G.fovCur + G.fovKick, eye, shy); G.cam = C;
+  const C = makeCam(P.x, P.y, P.ang + G.kickYaw, G.fovCur + G.fovKick, eye, shy + P.pitch + G.kickPitch); G.cam = C;
   renderWorld(C); drawEntities(C);
   if (G.impact > 0) mangaFilter();
   R.lctx.putImageData(R.img, 0, 0);
   if (G.state === 'play' || G.state === 'pause') drawWeapon(R.lctx);
   v.setTransform(1, 0, 0, 1, 0, 0); v.fillStyle = '#000'; v.fillRect(0, 0, W, H);
-  const tilt = G.tilt + (P.dead ? Math.min(.35, G.deadT * .5) : 0), zoom = 1 + Math.abs(tilt) * .45;
+  const tilt = G.tilt + G.roll + shr + (P.dead ? Math.min(.35, G.deadT * .5) : 0), zoom = 1 + Math.abs(tilt) * .45;
   v.translate(W / 2 + shx, H / 2); v.rotate(tilt); v.scale(zoom, zoom); v.drawImage(R.low, -W / 2, -H / 2);
   v.setTransform(1, 0, 0, 1, 0, 0);
   vignette(v, '0,0,0', .55);
   if (P.rageT > 0) vignette(v, '200,0,0', .55 + .15 * Math.sin(G.time * 11));
   else if (P.hp < 30 && G.state === 'play') vignette(v, '150,0,0', .4 + .2 * Math.sin(G.time * 6));
+  if (G.state === 'play' || G.state === 'dead') drawBreath(v);
   if (G.redFlash > 0) { v.fillStyle = `rgba(170,0,0,${G.redFlash})`; v.fillRect(0, 0, W, H); }
   if (G.impact > 0) { v.fillStyle = 'rgba(255,255,255,.08)'; v.fillRect(0, 0, W, H); }
   if (G.state === 'play') drawHUD(v);

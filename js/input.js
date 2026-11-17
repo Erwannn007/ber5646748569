@@ -4,7 +4,7 @@
 //  + contrôles tactiles iPhone
 // =====================================================================
 const Input = {
-  k: {}, look: 0, atkP: false, hvP: false, hvH: false, dashP: false, rageP: false, mapP: false, anyP: false,
+  k: {}, look: 0, lookY: 0, atkP: false, hvP: false, hvH: false, dashP: false, rageP: false, mapP: false, anyP: false,
   mx: 0, my: 0, touch: false, locked: false, sens: .0026
 };
 function initInput() {
@@ -29,7 +29,7 @@ function initInput() {
   });
   addEventListener('mouseup', e => { if (e.button === 2) Input.hvH = false; });
   addEventListener('contextmenu', e => e.preventDefault());
-  addEventListener('mousemove', e => { if (Input.locked) Input.look += e.movementX * Input.sens; });
+  addEventListener('mousemove', e => { if (Input.locked) { Input.look += e.movementX * Input.sens; Input.lookY += e.movementY * Input.sens; } });
   document.addEventListener('pointerlockchange', () => {
     Input.locked = document.pointerLockElement === view;
     if (!Input.locked && G.state === 'play' && !Input.touch) G.state = 'pause';
@@ -58,7 +58,7 @@ function initInput() {
         let dx = t.clientX - sox, dy = t.clientY - soy; const d = Math.hypot(dx, dy), m = 55;
         if (d > m) { dx = dx / d * m; dy = dy / d * m; }
         Input.mx = dx / m; Input.my = dy / m; knob.style.transform = `translate(${dx}px,${dy}px)`;
-      } else if (t.identifier === lookId) { Input.look += (t.clientX - lastX) * .0068; lastX = t.clientX; lastY = t.clientY; }
+      } else if (t.identifier === lookId) { Input.look += (t.clientX - lastX) * .0068; Input.lookY += (t.clientY - lastY) * .0068; lastX = t.clientX; lastY = t.clientY; }
     }
     e.preventDefault();
   }, { passive: false });

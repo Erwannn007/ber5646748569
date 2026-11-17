@@ -5,6 +5,7 @@
 const R = { W: 320, H: 200, buf: null, dep: null, img: null, low: null, lctx: null, view: null, vctx: null };
 const LMR = 4;   // résolution lightmap par case
 const BFR = 16;  // résolution sang au sol par case
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
 function initRender() {
   R.view = document.getElementById('view'); R.vctx = R.view.getContext('2d');
@@ -37,7 +38,7 @@ function renderWorld(C) {
   for (let y = 0; y < H; y++) {
     const yc = y + .5, flo = yc > C.hor, dy = flo ? yc - C.hor : C.hor - yc;
     const rowD = (flo ? C.eye : (1 - C.eye)) * C.focal / Math.max(dy, .05);
-    const pl = plight(rowD), fog = fogf(rowD);
+    const pl = plight(rowD), fog = fogf(rowD), hz = (1 - fog) * G.haze;
     const sx = rowD * (r1x - r0x) / W, sy = rowD * (r1y - r0y) / W;
     let wx = C.x + rowD * r0x + sx * .5, wy = C.y + rowD * r0y + sy * .5;
     const tex = flo ? ft : ct; let i = y * W;
@@ -52,7 +53,7 @@ function renderWorld(C) {
         if (bv) { const a = bv * .0036; r += (125 - 55 * a - r) * a; g += (5 - g) * a; b += (6 - b) * a; }
       }
       const L = (lm[((wy * LMR) | 0) * LMW + ((wx * LMR) | 0)] * fl + pl) * fog + flash;
-      r *= L * TR; g *= L * TG; b *= L * TB;
+      r = r * L * TR + hz * 12; g = g * L * TG + hz * 17; b = b * L * TB + hz * 27;
       buf[i] = 0xff000000 | ((b > 255 ? 255 : b | 0) << 16) | ((g > 255 ? 255 : g | 0) << 8) | (r > 255 ? 255 : r | 0);
     }
   }
@@ -86,7 +87,7 @@ function renderWorld(C) {
     if (isGate && gateOpen) L = gatePulse;
     else L = (lmAt(lx, ly) * fl + plight(perp)) * fogf(perp) * (side ? .8 : 1) + flash;
     const tex = isGate ? gT : (TEX.wall[cell] || TEX.wall[1]).data;
-    const Lr = L * TR, Lg = L * (isGate && gateOpen ? .9 : TG), Lb = L * TB;
+    const Lr = L * TR, Lg = L * (isGate && gateOpen ? .9 : TG), Lb = L * TB, hzw = (1 - fogf(perp)) * G.haze;
     const inMap = mx >= 0 && my >= 0 && mx < mw && my < mh;
     const bbase = inMap ? (my * mw + mx) * 256 : -1, bcol = (wallX * 16) | 0;
     for (let y = y0; y <= y1; y++) {
@@ -98,7 +99,7 @@ function renderWorld(C) {
         const bv = bw[bbase + ((ty >> 2) << 4) + bcol];
         if (bv) { const a = bv * .0036; r += (125 - 55 * a - r) * a; g += (5 - g) * a; b += (6 - b) * a; }
       }
-      r *= Lr; g *= Lg; b *= Lb;
+      r = r * Lr + hzw * 12; g = g * Lg + hzw * 17; b = b * Lb + hzw * 27;
       buf[i] = 0xff000000 | ((b > 255 ? 255 : b | 0) << 16) | ((g > 255 ? 255 : g | 0) << 8) | (r > 255 ? 255 : r | 0);
       dep[i] = perp;
     }
@@ -107,7 +108,7 @@ function renderWorld(C) {
 
 // sprite billboard avec rotation, test de profondeur par pixel
 // lit < 0 => plein éclairage ; flash 0..1 blanc ; mode 1 = clignotement exécution
-function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode) {
+function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode, dim = 1, fade = 1) {
   const dx = wx - C.x, dy = wy - C.y, depth = dx * C.dirX + dy * C.dirY;
   if (depth < .12) return;
   const sx = C.W / 2 + (dx * C.plX + dy * C.plY) / depth * C.focal;
@@ -119,8 +120,8 @@ function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode) {
   const y0 = Math.max(0, Math.floor(sy - ey)), y1 = Math.min(C.H - 1, Math.ceil(sy + ey));
   if (x0 > x1 || y0 > y1) return;
   const inv = 1 / ppt, tw = t.w, th = t.h, d = t.data, buf = R.buf, dep = R.dep, W = C.W;
-  let L = lit < 0 ? 1 : (lit * G.flick + plight(depth)) * fogf(depth) + G.flash;
-  const Lr = L * G.tint[0], Lg = L * G.tint[1], Lb = L * G.tint[2];
+  let L = lit < 0 ? 1 : ((lit * G.flick + plight(depth)) * fogf(depth) + G.flash) * dim;
+  const Lr = L * G.tint[0], Lg = L * G.tint[1], Lb = L * G.tint[2], hz = (1 - fogf(depth)) * G.haze, fq = fade * 16;
   const fw = flash > 0 ? flash : 0;
   const fr = mode === 1 ? 255 : 255, fg = mode === 1 ? 150 : 255, fb = mode === 1 ? 40 : 255;
   const hw2 = tw / 2, hh2 = th / 2;
@@ -128,6 +129,7 @@ function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode) {
     const ly = (y + .5 - sy) * inv; const row = y * W;
     for (let x = x0; x <= x1; x++) {
       const i = row + x; if (dep[i] <= depth) continue;
+      if (fq < 16 && BAYER[((y & 3) << 2) | (x & 3)] >= fq) continue;
       const lx = (x + .5 - sx) * inv;
       let u, v;
       if (rot) { u = lx * cr + ly * sr + hw2; v = -lx * sr + ly * cr + hh2; } else { u = lx + hw2; v = ly + hh2; }
@@ -135,7 +137,7 @@ function drawSprite(C, t, wx, wy, zc, sc, rot, flip, lit, flash, mode) {
       let ui = u | 0; if (flip) ui = tw - 1 - ui;
       const c = d[(v | 0) * tw + ui], a = c >>> 24; if (!a) continue;
       let r = c & 255, g = (c >> 8) & 255, b = (c >> 16) & 255;
-      if (a !== 254) { r *= Lr; g *= Lg; b *= Lb; }
+      if (a !== 254) { r = r * Lr + hz * 12; g = g * Lg + hz * 17; b = b * Lb + hz * 27; }
       if (fw) { r += (fr - r) * fw; g += (fg - g) * fw; b += (fb - b) * fw; }
       buf[i] = 0xff000000 | ((b > 255 ? 255 : b | 0) << 16) | ((g > 255 ? 255 : g | 0) << 8) | (r > 255 ? 255 : r | 0);
       dep[i] = depth;
