@@ -570,7 +570,10 @@ function buildAssets() {
 
   const poses = ['idle', 'walk1', 'walk2', 'wind', 'strike', 'hurt'];
   const mk = fn => { const o = {}; for (const p of poses) o[p] = fn(p).tex(); return o; };
-  SPR.ghoul = mk(ghoulFrame); SPR.knight = mk(knightFrame); SPR.brute = mk(bruteFrame); SPR.wraith = mk(wraithFrame);
+  for (const ty of ['ghoul', 'knight', 'brute', 'wraith']) {
+    const v = MONSTERS[ty][MONSTER_STYLE[ty]] || MONSTERS[ty].A;
+    SPR[ty] = mk(v.fn); Object.assign(ET[ty], { neck: v.neck, waist: v.waist });
+  }
   SPR.boss = {};
   for (const p of poses) {
     const t = SPR.brute[p], d = new Uint32Array(t.data);
