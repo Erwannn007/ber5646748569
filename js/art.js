@@ -595,6 +595,4 @@ function buildAssets() {
   SPR.flask = flaskSprite(); SPR.orb = orbSprite(); SPR.fireball = fireballFrames();
   SPR.sword = makeSword(); SPR.swordRed = tintCanvas(SPR.sword, '#ff1a00', .55); SPR.swordGlow = tintCanvas(SPR.sword, '#ffddaa', .35);
   SPR.hands = makeHands();
-  SPR.face = [];
-  for (let l = 0; l < 4; l++) { SPR.face[l] = []; for (let e = 0; e < 4; e++) SPR.face[l][e] = makeFace(l, e); }
 }

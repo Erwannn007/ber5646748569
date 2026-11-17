@@ -222,7 +222,7 @@ function flipTex(t) {
 // ---------------------------------------------------------------- combat
 function aggro(e) {
   if (e.aggro) return; e.aggro = true; if (e.state === 'idle') e.state = 'chase';
-  if (Math.random() < .5) e.T.ranged ? Sfx.shriek() : Sfx.growl(e.T.gp * (e.boss ? .7 : 1));
+  if (Math.random() < .5) e.T.ranged ? Sfx.shriek(e) : Sfx.growl(e.T.gp * (e.boss ? .7 : 1), e);
   for (const o of G.enemies) if (!o.aggro && Math.hypot(o.x - e.x, o.y - e.y) < 5 && losMap(o.x, o.y, e.x, e.y)) { o.aggro = true; o.state = 'chase'; }
 }
 function damageEnemy(e, dmg, kind) {
@@ -238,7 +238,7 @@ function damageEnemy(e, dmg, kind) {
   e.kx = dx / d * kb; e.ky = dy / d * kb;
   if (!T.heavyBody || heavy || e.state !== 'wind') { e.state = 'hurt'; e.t = heavy ? .45 : .25; }
   if (!e.staggered && e.hp <= e.maxHp * .38) {
-    e.staggered = true; e.stagger = e.boss ? 4 : 3.2; Sfx.stagger();
+    e.staggered = true; e.stagger = e.boss ? 4 : 3.2; Sfx.stagger(e);
     G.msg(e.boss ? 'LE BOUCHER VACILLE !' : 'VULNERABLE', 1, '#fa4');
   }
   return false;
@@ -342,7 +342,7 @@ function execHit(idx) {
     spray(c.ref.x, c.ref.y, c.ref.zc, 110, 3.6, c.ref.fx, c.ref.fy);
     for (let i = 0; i < 5; i++) G.pools.push({ x: c.ref.x + rr(-.6, .6), y: c.ref.y + rr(-.6, .6), r: 0, max: rr(5, 10) });
     for (let i = 0; i < 40; i++) stampWallNear(c.ref.x, c.ref.y);
-    G.impact = .16; G.flash = .5; shake(1.5); Sfx.boom(); Sfx.gore();
+    G.impact = .16; G.flash = .5; shake(1.5); Sfx.boom(); Sfx.gore(); Sfx.play('gush', { vol: .7, delay: .15 }); Sfx.play('splat', { vol: .8, delay: .3, rev: .4 });
     G.slowT = 1.4; G.slowScale = .14;
     P.hp = Math.min(P.maxHp, P.hp + 25); P.rage = Math.min(100, P.rage + 25); G.fstats.execs++; G.run.execs++; G.grinT = 2.2;
     G.msg('EXECUTION', 2.2, '#f22', true); G.msg(V.title + '  +25 VIE', 2.2, '#ddd');
@@ -466,34 +466,57 @@ function updateBreath(dt) {
   const period = lerp(3.6, .62, P.ex), ph0 = P.brPh;
   P.brPh = (P.brPh + dt / period) % 1;
   if (P.brPh < ph0) Sfx.breath(true, P.ex);
-  if (ph0 < .5 && P.brPh >= .5) {
-    Sfx.breath(false, P.ex);
-    const n = Math.round(5 + P.ex * 9);
-    for (let i = 0; i < n; i++) G.breath.push({
-      x: rr(-5, 5), y: R.H + rr(2, 8), vx: rr(-9, 9), vy: -rr(18, 34) * (.75 + P.ex * .7), r: rr(2.5, 5), gr: rr(12, 24) * (.8 + P.ex * .5),
-      a: rr(.09, .17) * (.85 + P.ex * .6), life: rr(1.1, 1.9) * (1.1 - P.ex * .3), age: -i * .03 * (1.3 - P.ex)
-    });
+  if (ph0 < .5 && P.brPh >= .5) { Sfx.breath(false, P.ex); P.exhT = lerp(.6, .32, P.ex); P.exhSide = rr(-1, 1); }
+  if (P.exhT > 0) {
+    P.exhT -= dt; P.exhAcc = (P.exhAcc || 0) + dt * (28 + P.ex * 40);
+    const k = clamp(P.exhT / .3, 0, 1);
+    while (P.exhAcc >= 1) {
+      P.exhAcc -= 1;
+      G.breath.push({
+        x: rr(-3, 3) + P.exhSide * 3, y: R.H + rr(4, 10), vx: rr(-6, 6) + P.exhSide * 4, vy: -rr(30, 48) * (.8 + P.ex * .5) * (.6 + k * .5),
+        s: rr(5, 9), gs: rr(9, 16), a: rr(.05, .09) * (.7 + P.ex * .6), life: rr(.9, 1.5), age: 0, rot: rr(0, TAU), vr: rr(-1, 1), v: (Math.random() * 4) | 0, ph: rr(0, TAU)
+      });
+    }
   }
 }
 function updateBreathFx(dt) {
   const f = G.cam ? G.cam.focal : 280;
   G.breath = G.breath.filter(b => {
-    b.age += dt; if (b.age < 0) return true;
-    b.x += b.vx * dt - P.turn * f * .6; b.y += b.vy * dt; b.vy *= Math.pow(.45, dt); b.vx *= Math.pow(.6, dt);
-    b.r += b.gr * dt; return b.age < b.life;
+    b.age += dt;
+    const fwd = P.vx * Math.cos(P.ang) + P.vy * Math.sin(P.ang);
+    b.x += (b.vx + Math.sin(b.ph + b.age * 3) * 6) * dt - P.turn * f * .7;
+    b.y += (b.vy + fwd * 14) * dt; b.vy *= Math.pow(.35, dt); b.vx *= Math.pow(.5, dt);
+    b.s += b.gs * dt; b.gs *= Math.pow(.4, dt); b.rot += b.vr * dt;
+    return b.age < b.life;
   });
-  if (G.breath.length > 120) G.breath.splice(0, G.breath.length - 120);
+  if (G.breath.length > 160) G.breath.splice(0, G.breath.length - 160);
+}
+// textures de vapeur : nuages doux irréguliers
+let PUFFS = null;
+function makePuffs() {
+  PUFFS = [];
+  for (let k = 0; k < 4; k++) {
+    const S = 48, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+    for (let j = 0; j < 9; j++) {
+      const r = rr(7, 15), cx = S / 2 + rr(-9, 9), cy = S / 2 + rr(-7, 7), g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, 'rgba(225,232,240,.55)'); g.addColorStop(.5, 'rgba(215,224,235,.22)'); g.addColorStop(1, 'rgba(210,220,232,0)');
+      x.fillStyle = g; x.fillRect(0, 0, S, S);
+    }
+    PUFFS.push(c);
+  }
 }
 function drawBreath(v) {
-  const W = R.W;
+  if (!G.breath.length) return;
+  if (!PUFFS) makePuffs();
+  const W = R.W, L = clamp(lmAt(P.x, P.y) * 1.3 + .45, .45, 1.1);
   for (const b of G.breath) {
-    if (b.age < 0) continue;
-    const t = b.age / b.life, a = b.a * (t < .15 ? t / .15 : 1 - (t - .15) / .85);
-    v.fillStyle = `rgba(222,230,240,${a})`;
-    v.beginPath(); v.arc(W / 2 + b.x, b.y, b.r, 0, TAU); v.fill();
-    v.fillStyle = `rgba(240,245,250,${a * .5})`;
-    v.beginPath(); v.arc(W / 2 + b.x - b.r * .2, b.y - b.r * .2, b.r * .55, 0, TAU); v.fill();
+    const t = b.age / b.life, a = b.a * L * (t < .2 ? t / .2 : Math.pow(1 - (t - .2) / .8, 1.5));
+    if (a <= .003) continue;
+    v.globalAlpha = Math.min(1, a * 3.5);
+    v.save(); v.translate(W / 2 + b.x, b.y); v.rotate(b.rot);
+    v.drawImage(PUFFS[b.v], -b.s, -b.s, b.s * 2, b.s * 2); v.restore();
   }
+  v.globalAlpha = 1;
 }
 
 // ---------------------------------------------------------------- ennemis
@@ -541,7 +564,7 @@ function updateEnemies(dt) {
     }
     if (T.heavyBody && e.wasMoving) {
       e.stepT = (e.stepT || 0) - dt;
-      if (e.stepT <= 0) { e.stepT = e.boss ? .55 : .45; if (dist < 8) { shake((e.boss ? .3 : .16) * (1 - dist / 8)); Sfx.step(); } }
+      if (e.stepT <= 0) { e.stepT = e.boss ? .55 : .45; if (dist < 8) { shake((e.boss ? .3 : .16) * (1 - dist / 8)); Sfx.heavyStep(e); } }
     }
     e.wasMoving = e.moving; e.moving = false;
     if (e.stagger > 0) { e.stagger -= dt; e.state = 'stagger'; continue; }
@@ -552,11 +575,11 @@ function updateEnemies(dt) {
       case 'chase': {
         e.cd -= dt;
         if (T.ranged) {
-          if (e.los && dist < 9 && e.cd <= 0) { e.state = 'wind'; e.t = T.wind; Sfx.cast(); break; }
+          if (e.los && dist < 9 && e.cd <= 0) { e.state = 'wind'; e.t = T.wind; Sfx.cast(e); break; }
           const want = (dist > 6 || !e.los) ? 1 : dist < 3.2 ? -1 : 0;
           if (want) steer(e, want, dt);
         } else {
-          if (dist < T.range + e.r * .5 && e.cd <= 0 && e.los) { e.state = 'wind'; e.t = T.wind * (e.boss ? 1.1 : 1); if (Math.random() < .5) Sfx.growl(T.gp * (e.boss ? .7 : 1)); break; }
+          if (dist < T.range + e.r * .5 && e.cd <= 0 && e.los) { e.state = 'wind'; e.t = T.wind * (e.boss ? 1.1 : 1); if (Math.random() < .5) Sfx.growl(T.gp * (e.boss ? .7 : 1), e); break; }
           if (dist > T.range * .7) steer(e, 1, dt);
         }
         break;
@@ -592,7 +615,7 @@ function updateProjs(dt) {
   G.projs = G.projs.filter(p => {
     p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
     if (Math.random() < .5) G.parts.push({ x: p.x, y: p.y, z: p.z + rr(-.05, .05), vx: rr(-.3, .3), vy: rr(-.3, .3), vz: rr(0, .5), s: .02, col: [120, 255, 140], life: .3, emis: true, g: 0 });
-    if (isWall(p.x, p.y) || p.life <= 0) { sparks(p.x - p.vx * dt, p.y - p.vy * dt, p.z, 16, [120, 255, 140]); Sfx.fizz(); return false; }
+    if (isWall(p.x, p.y) || p.life <= 0) { sparks(p.x - p.vx * dt, p.y - p.vy * dt, p.z, 16, [120, 255, 140]); Sfx.fizz(p); return false; }
     if (p.owner === 'e') { if (Math.hypot(P.x - p.x, P.y - p.y) < .42) { hurtPlayer(p.dmg, p); sparks(p.x, p.y, p.z, 14, [120, 255, 140]); return false; } }
     else for (const e of G.enemies) if (!e.dead && Math.hypot(e.x - p.x, e.y - p.y) < e.r + .25) { damageEnemy(e, 70, 'PROJ'); sparks(p.x, p.y, p.z, 16, [120, 255, 140]); return false; }
     return true;
@@ -610,7 +633,7 @@ function updateParts(dt) {
       p.vx *= -.3; p.vy *= -.3;
     } else { p.x = nx; p.y = ny; }
     p.z += p.vz * dt;
-    if (p.z <= 0) { if (p.blood) { stampFloor(p.x, p.y, p.s > .03 ? 1 : 0, 50 + p.s * 1500); continue; } p.z = 0; p.vz *= -.3; }
+    if (p.z <= 0) { if (p.blood) { stampFloor(p.x, p.y, p.s > .03 ? 1 : 0, 50 + p.s * 1500); if (p.s > .03 && Math.random() < .15) Sfx.drop(p); continue; } p.z = 0; p.vz *= -.3; }
     if (p.z > .98) { p.z = .98; p.vz = -Math.abs(p.vz) * .2; }
     ps[w++] = p;
   }
@@ -636,7 +659,7 @@ function updateGibs(dt) {
     const ext = gibExt(g) * g.sq;
     if (g.z <= ext) {
       g.z = ext;
-      if (g.vz < -1.4) { g.vz *= -.25; g.vrot *= .5; stampFloor(g.x, g.y, 2, 140); }
+      if (g.vz < -1.4) { g.vz *= -.25; g.vrot *= .5; stampFloor(g.x, g.y, 2, 140); Sfx.thud(g); }
       else g.vz = 0;
       const f = Math.pow(.004, dt); g.vx *= f; g.vy *= f;
       g.ground = true;
@@ -687,7 +710,7 @@ function update(dt) {
   G.shake *= Math.pow(.004, dt); G.flash = Math.max(0, G.flash - dt * 2.5); G.redFlash = Math.max(0, G.redFlash - dt * 1.2);
   G.fovKick *= Math.pow(.02, dt); G.grinT -= dt;
   G.kickYaw *= Math.pow(.0004, dt); G.kickPitch *= Math.pow(.0004, dt);
-  updateBreathFx(dt);
+  updateBreathFx(dt); Sfx.tick(dt);
   for (const m of G.msgs) m.life -= dt; G.msgs = G.msgs.filter(m => m.life > 0);
   const tgt = P.rageT > 0 ? [1.35, .55, .45] : [1.05, .86, .72];
   for (let i = 0; i < 3; i++) G.tint[i] = lerp(G.tint[i], tgt[i], Math.min(1, dt * 4));
@@ -846,13 +869,9 @@ function hudPanels(v) {
   P.hpLag = P.hpLag === undefined ? P.hp : (P.hpLag > P.hp ? P.hpLag - (P.hpLag - P.hp) * .04 - .1 : P.hp);
   // panneau bas-gauche
   const px = 3, py = H - 42;
-  plate(v, px, py, 134, 39);
-  const lvl = P.hp > 75 ? 0 : P.hp > 50 ? 1 : P.hp > 25 ? 2 : 3;
-  const ex = P.hurtT > 0 ? 1 : P.rageT > 0 ? 2 : G.grinT > 0 ? 3 : 0;
-  v.fillStyle = P.rageT > 0 ? '#a01808' : '#5a4630'; v.fillRect(px + 3, py + 3, 32, 36 - 3);
-  v.fillStyle = '#000'; v.fillRect(px + 4, py + 4, 30, 34 - 3);
-  v.drawImage(SPR.face[lvl][ex], 0, 0, 30, 31, px + 4, py + 4, 30, 31);
-  const bx = px + 40, bw = 90;
+  plate(v, px, py, 100, 39);
+  if (P.rageT > 0) { v.fillStyle = 'rgba(200,30,10,.35)'; v.fillRect(px, py, 100, 39); }
+  const bx = px + 5, bw = 90;
   const low = P.hp < 30 && (Math.floor(G.time * 4) & 1);
   drawText(v, 'VIE', bx, py + 4, 1, '#c88', 'left', null);
   drawText(v, Math.ceil(P.hp) + '/' + P.maxHp, bx + bw, py + 4, 1, low ? '#f66' : '#eee', 'right', null);
@@ -952,6 +971,7 @@ function draw() {
   renderWorld(C); drawEntities(C);
   if (G.impact > 0) mangaFilter();
   R.lctx.putImageData(R.img, 0, 0);
+  if (G.state === 'play' || G.state === 'dead') drawBreath(R.lctx);
   if (G.state === 'play' || G.state === 'pause') drawWeapon(R.lctx);
   v.setTransform(1, 0, 0, 1, 0, 0); v.fillStyle = '#000'; v.fillRect(0, 0, W, H);
   const tilt = G.tilt + G.roll + shr + (P.dead ? Math.min(.35, G.deadT * .5) : 0), zoom = 1 + Math.abs(tilt) * .45;
@@ -960,7 +980,6 @@ function draw() {
   vignette(v, '0,0,0', .55);
   if (P.rageT > 0) vignette(v, '200,0,0', .55 + .15 * Math.sin(G.time * 11));
   else if (P.hp < 30 && G.state === 'play') vignette(v, '150,0,0', .4 + .2 * Math.sin(G.time * 6));
-  if (G.state === 'play' || G.state === 'dead') drawBreath(v);
   if (G.redFlash > 0) { v.fillStyle = `rgba(170,0,0,${G.redFlash})`; v.fillRect(0, 0, W, H); }
   if (G.impact > 0) { v.fillStyle = 'rgba(255,255,255,.08)'; v.fillRect(0, 0, W, H); }
   if (G.state === 'play') drawHUD(v);
